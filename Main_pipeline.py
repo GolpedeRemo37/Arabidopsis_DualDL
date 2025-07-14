@@ -5,7 +5,6 @@ import os
 import gc
 from math import ceil
 from scipy import ndimage
-import matplotlib.pyplot as plt
 from skimage.morphology import ball
 from scipy.ndimage import binary_dilation
 from skimage.measure import label, regionprops
@@ -21,6 +20,7 @@ class CellSegmentationPipeline:
         - input_images: list of input image paths
         - output_folders: dict with folder names as keys
         - processing_params: dict with processing parameters
+        - pixel_dimensions: list [pix_x, pix_y, pix_z] in um (optional, None to read from metadata)
         """
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -141,7 +141,8 @@ class CellSegmentationPipeline:
         print("Binarizing output...")
         result_3d = (result_3d > 0.2).astype(np.uint8) * 255
         
-        return result_3d    
+        return result_3d
+    
     def process_2d_slices(self, model, full_img):
         """Process each 2D slice using the 2D model"""
         depth, height, width = full_img.shape
@@ -170,49 +171,59 @@ class CellSegmentationPipeline:
         return result_2d
     
     def extract_voxel_dimensions(self, image_path):
-        """Extract voxel dimensions from TIFF metadata"""
-        print(f"Reading image metadata from: {image_path}")
-        
-        pixel_size_um_x = None
-        pixel_size_um_y = None
-        pixel_size_um_z = None
-        
-        try:
-            with tifffile.TiffFile(image_path) as tif:
-                if hasattr(tif, 'ome_metadata') and tif.ome_metadata is not None:
-                    pixels = tif.ome_metadata.images[0].pixels
-                    pixel_size_um_x = pixels.PhysicalSizeX
-                    pixel_size_um_y = pixels.PhysicalSizeY
-                    pixel_size_um_z = pixels.PhysicalSizeZ
-                    print(f"Found OME-XML metadata.")
-                
-                if pixel_size_um_x is None or pixel_size_um_y is None:
-                    if tif.pages and tif.pages[0].tags.get('ImageDescription') is not None:
-                        description = tif.pages[0].tags['ImageDescription'].value
-                        
-                        match_x = re.search(r"x_resolution=(\d+\.?\d*)", description, re.IGNORECASE)
-                        match_y = re.search(r"y_resolution=(\d+\.?\d*)", description, re.IGNORECASE)
-                        match_z = re.search(r"z_resolution=(\d+\.?\d*)", description, re.IGNORECASE)
-                        match_voxel_size = re.search(r"voxel_size_um=(\d+\.?\d*)", description, re.IGNORECASE)
-                        
-                        if match_x: pixel_size_um_x = float(match_x.group(1))
-                        if match_y: pixel_size_um_y = float(match_y.group(1))
-                        if match_z: pixel_size_um_z = float(match_z.group(1))
-                        if match_voxel_size and (pixel_size_um_x is None or pixel_size_um_y is None):
-                            val = float(match_voxel_size.group(1))
-                            pixel_size_um_x = pixel_size_um_x or val
-                            pixel_size_um_y = pixel_size_um_y or val
-                            pixel_size_um_z = pixel_size_um_z or val
+        """Extract or use provided voxel dimensions"""
+        print(f"Determining voxel dimensions for: {image_path}")
+
+        # Check if pixel dimensions are provided in config
+        pixel_dimensions = self.config.get('pixel_dimensions', None)
+
+        if pixel_dimensions is not None and len(pixel_dimensions) == 3:
+            pixel_size_um_x, pixel_size_um_y, pixel_size_um_z = pixel_dimensions
+            print(f"Using provided pixel dimensions: X={pixel_size_um_x:.3f}, Y={pixel_size_um_y:.3f}, Z={pixel_size_um_z:.3f} um")
+        else:
+            # Fall back to reading from metadata
+            print("No pixel dimensions provided in config, reading from metadata...")
+            pixel_size_um_x = None
+            pixel_size_um_y = None
+            pixel_size_um_z = None
+
+            try:
+                with tifffile.TiffFile(image_path) as tif:
+                    if hasattr(tif, 'ome_metadata') and tif.ome_metadata is not None:
+                        pixels = tif.ome_metadata.get('Image', {}).get('Pixels', {})
+                        pixel_size_um_x = pixels.get('PhysicalSizeX')
+                        pixel_size_um_y = pixels.get('PhysicalSizeY')
+                        pixel_size_um_z = pixels.get('PhysicalSizeZ')
+                        print(f"Found OME-XML metadata.")
+
+                    if pixel_size_um_x is None or pixel_size_um_y is None:
+                        if tif.pages and tif.pages[0].tags.get('ImageDescription'):
+                            description = tif.pages[0].tags['ImageDescription'].value
                             
-        except Exception as e:
-            print(f"Could not read TIFF metadata: {e}")
-        
-        # Set defaults if not found
-        if pixel_size_um_x is None: pixel_size_um_x = 1.0
-        if pixel_size_um_y is None: pixel_size_um_y = 1.0
-        if pixel_size_um_z is None: pixel_size_um_z = 1.0
-        
-        print(f"Voxel Dimensions (um): X={pixel_size_um_x:.3f}, Y={pixel_size_um_y:.3f}, Z={pixel_size_um_z:.3f}")
+                            match_x = re.search(r"x_resolution=(\d+\.?\d*)", description, re.IGNORECASE)
+                            match_y = re.search(r"y_resolution=(\d+\.?\d*)", description, re.IGNORECASE)
+                            match_z = re.search(r"z_resolution=(\d+\.?\d*)", description, re.IGNORECASE)
+                            match_voxel_size = re.search(r"voxel_size_um=(\d+\.?\d*)", description, re.IGNORECASE)
+                            
+                            if match_x: pixel_size_um_x = float(match_x.group(1))
+                            if match_y: pixel_size_um_y = float(match_y.group(1))
+                            if match_z: pixel_size_um_z = float(match_z.group(1))
+                            if match_voxel_size and (pixel_size_um_x is None or pixel_size_um_y is None):
+                                val = float(match_voxel_size.group(1))
+                                pixel_size_um_x = pixel_size_um_x or val
+                                pixel_size_um_y = pixel_size_um_y or val
+                                pixel_size_um_z = pixel_size_um_z or val
+                                
+            except Exception as e:
+                print(f"Could not read TIFF metadata: {e}")
+
+            # Set defaults if not found
+            if pixel_size_um_x is None: pixel_size_um_x = 1.0
+            if pixel_size_um_y is None: pixel_size_um_y = 1.0
+            if pixel_size_um_z is None: pixel_size_um_z = 1.0
+
+            print(f"Extracted voxel dimensions from metadata: X={pixel_size_um_x:.3f}, Y={pixel_size_um_y:.3f}, Z={pixel_size_um_z:.3f} um")
+
         return pixel_size_um_x, pixel_size_um_y, pixel_size_um_z
     
     def get_6_connectivity_structure(self):
@@ -253,6 +264,10 @@ class CellSegmentationPipeline:
             print(f"Skipping {image_path} due to loading error")
             return False
         
+        # Get voxel dimensions
+        pixel_size_um_x, pixel_size_um_y, pixel_size_um_z = self.extract_voxel_dimensions(image_path)
+        voxel_volume_um3 = pixel_size_um_x * pixel_size_um_y * pixel_size_um_z
+        
         # Step 1: Model Segmentation
         print("\n--- Step 1: Model Segmentation ---")
         result_3d = self.process_3d_stacks(self.model_3d, full_img, 
@@ -278,13 +293,10 @@ class CellSegmentationPipeline:
         structuring_element = ball(cell_dilation_radius, dtype=np.uint8)
         dilated_skeleton = binary_dilation(binary_skeleton, structure=structuring_element)
         
-        # --- START MODIFICATION ---
         # Pad one pixel in each direction (H+2, W+2) for the ZY and ZX planes
-        # Since it's a 3D array (Z, H, W), we pad the H and W dimensions.
-        # Pad with 0s (False for binary operations)
         print("Padding dilated skeleton...")
         padded_dilated_skeleton = np.pad(dilated_skeleton, 
-                                         ((0, 0), (1, 1), (1, 1)), # Pad only H and W (1 pixel on each side)
+                                         ((0, 0), (1, 1), (1, 1)), 
                                          mode='constant', constant_values=0)
         
         # Invert and remove largest component
@@ -297,10 +309,8 @@ class CellSegmentationPipeline:
         
         # Remove the padding to restore original dimensions (H, W)
         print("Removing padding...")
-        # Slice to remove the 1-pixel border from H and W dimensions
         binary_cells = binary_cells_padded[:, 1:-1, 1:-1]
-        # --- END MODIFICATION ---
-
+        
         # Label cells in 3D
         print("Labeling cells in 3D...")
         s_6_connectivity = self.get_6_connectivity_structure()
@@ -320,9 +330,31 @@ class CellSegmentationPipeline:
         dilated_cells_3d[dilated_binary_all_cells] = dilated_temp[dilated_binary_all_cells]
         dilated_cells_3d = np.maximum(dilated_cells_3d, labeled_cells_3d)
         
-        # Skip volume filtering - use dilated cells directly
-        print("\n--- Volume filtering step skipped ---")
-        final_labeled_cells_3d = dilated_cells_3d
+        # Step 3: Volume Filtering
+        print("\n--- Step 3: Volume Filtering ---")
+        volume_threshold_um3 = self.config['processing_params']['volume_threshold_um3']
+        print(f"Filtering cells with volume < {volume_threshold_um3:.2f} um³")
+        
+        # Calculate volumes and filter
+        regions = regionprops(dilated_cells_3d)
+        filtered_cells_3d = np.zeros_like(dilated_cells_3d, dtype=dilated_cells_3d.dtype)
+        valid_labels = []
+        
+        for region in regions:
+            volume_um3 = region.area * voxel_volume_um3
+            if volume_um3 >= volume_threshold_um3:
+                valid_labels.append(region.label)
+        
+        print(f"Keeping {len(valid_labels)} cells with volume >= {volume_threshold_um3:.2f} um³")
+        
+        # Set labels of cells below threshold to 0
+        mask = np.isin(dilated_cells_3d, valid_labels)
+        filtered_cells_3d[mask] = dilated_cells_3d[mask]
+        
+        # Second labeling to ensure consecutive labels
+        print("Relabeling filtered cells...")
+        final_labeled_cells_3d, num_final_features = ndimage.label(filtered_cells_3d > 0, structure=s_6_connectivity)
+        print(f"After relabeling, found {num_final_features} distinct cells")
         
         # Save final result
         final_output_path = os.path.join(self.config['output_folders']['final'], f"{base_name}_cells.tif")
@@ -330,14 +362,22 @@ class CellSegmentationPipeline:
                          compression='zlib', photometric='minisblack')
         print(f"Final result saved to: {final_output_path}")
         
-        # Generate summary statistics (without volume calculations)
+        # Generate summary statistics
         final_regions = regionprops(final_labeled_cells_3d)
         
         print(f"\n--- Summary Statistics ---")
         print(f"Total cells identified: {len(final_regions)}")
-        print(f"Cell size range (voxels): {min(prop.area for prop in final_regions)} - {max(prop.area for prop in final_regions)}")
-        print(f"Average cell size (voxels): {np.mean([prop.area for prop in final_regions]):.2f}")
-        print(f"Median cell size (voxels): {np.median([prop.area for prop in final_regions]):.2f}")
+        if final_regions:
+            cell_volumes_voxels = [prop.area for prop in final_regions]
+            cell_volumes_um3 = [v * voxel_volume_um3 for v in cell_volumes_voxels]
+            print(f"Cell volume range (um³): {min(cell_volumes_um3):.2f} - {max(cell_volumes_um3):.2f}")
+            print(f"Average cell volume (um³): {np.mean(cell_volumes_um3):.2f}")
+            print(f"Median cell volume (um³): {np.median(cell_volumes_um3):.2f}")
+            print(f"Cell size range (voxels): {min(cell_volumes_voxels):.0f} - {max(cell_volumes_voxels):.0f}")
+            print(f"Average cell size (voxels): {np.mean(cell_volumes_voxels):.2f}")
+            print(f"Median cell size (voxels): {np.median(cell_volumes_voxels):.2f}")
+        else:
+            print("No cells passed the volume threshold.")
         
         return True
         
