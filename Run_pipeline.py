@@ -1,6 +1,6 @@
 from Main_pipeline import CellSegmentationPipeline
 
-# Example configuration
+# Configuration
 config = {
     'model_paths': {
         '3d': r"E:\PHD\phd_env\Proyectos\AIRM\Codes\3D_UNet.pt",
@@ -17,8 +17,10 @@ config = {
         'stack_depth': 16,
         'cell_dilation_radius': 1,
         'cell_final_dilation_radius': 2,
-        'volume_threshold_um3': 100.0
-    }
+        'volume_threshold_um3': 1.5
+    },
+    'pixel_dimensions': [0.5, 0.5, 1.0]  # [pix_x, pix_y, pix_z] in micrometers
+    # Use None to read from metadata: 'pixel_dimensions': None
 }
 
 # Run the pipeline
