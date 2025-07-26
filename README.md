@@ -157,6 +157,18 @@ If you use this pipeline in your research, please cite the following models:
 }
 ```
 
+As well as the dataset:
+
+```bibtex
+@misc{willis2016repo,
+  author       = {Willis, Lucy and Refahi, Yassin and Wightman, Ralf and Landrein, Baptiste and Teles, João and Huang, Ke and Meyerowitz, Elliot M and Jönsson, Henrik},
+  title        = {Arabidopsis thaliana SAM confocal images and annotations},
+  howpublished = {University of Cambridge Repository},
+  year         = {2016},
+  url          = {https://www.repository.cam.ac.uk/items/f7cdcf20-e8ca-4cf5-b7ab-90350a8d00b2},
+}
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests to improve this pipeline.
