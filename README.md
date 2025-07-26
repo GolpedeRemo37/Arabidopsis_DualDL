@@ -93,9 +93,9 @@ python Run_pipeline.py
   - `segmentation`: Directory for intermediate segmentation results
   - `final`: Directory for final processed cell segmentations
 - **processing_params**:
-  - `stack_depth`: Depth of image stacks for processing
-  - `cell_dilation_radius`: Initial dilation radius for cell boundaries
-  - `cell_final_dilation_radius`: Final dilation radius for cell boundaries
+  - `stack_depth`: Depth of image stacks for running the 3D model
+  - `cell_dilation_radius`: Initial dilation radius for cell boundaries # Advisable to use 1
+  - `cell_final_dilation_radius`: Final dilation radius for cell boundaries # Advisable to use 2
   - `volume_threshold_um3`: Minimum cell volume threshold in cubic micrometers
 - **pixel_dimensions**: Pixel size in micrometers [x, y, z]. Set to `None` to read from image metadata
 
@@ -115,7 +115,7 @@ pipeline.run_pipeline()
 
 The pipeline generates two types of output:
 
-1. **Segmentation Results**: Intermediate segmentation masks stored in the specified segmentation folder
+1. **Segmentation Results**: Intermediate segmentation membrane masks stored in the specified segmentation folder
 2. **Final Cell Segmentation**: Processed and filtered cell segmentations with applied morphological operations
 
 ## Model Information
