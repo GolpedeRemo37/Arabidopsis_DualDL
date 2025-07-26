@@ -161,7 +161,7 @@ As well as the dataset:
 
 ```bibtex
 @misc{willis2016repo,
-  author       = {Willis, Lucy and Refahi, Yassin and Wightman, Ralf and Landrein, Baptiste and Teles, João and Huang, Ke and Meyerowitz, Elliot M and Jönsson, Henrik},
+  author       = {Willis, Lisa and Refahi, Yassin and Wightman, Ralf and Landrein, Baptiste and Teles, João and Huang, Ke and Meyerowitz, Elliot M and Jönsson, Henrik},
   title        = {Arabidopsis thaliana SAM confocal images and annotations},
   howpublished = {University of Cambridge Repository},
   year         = {2016},
