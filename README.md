@@ -4,7 +4,8 @@ Segmentation of Arabidopsis Apical Stem Cells via a Dual Deep Learning Approach
 ## Overview
 
 This repository implements a dual deep learning pipeline for automated segmentation of Arabidopsis apical stem cells using both 2D and 3D U-Net architectures. The approach combines the strengths of both models to achieve robust and accurate cell segmentation in confocal microscopy images.
-![Pipeline Overview](pipeline.bmp)
+
+![Pipeline Overview](Pipeline.bmp)
 Figure: Dual deep learning pipeline workflow for Arabidopsis apical stem cell segmentation
 
 ## Features
