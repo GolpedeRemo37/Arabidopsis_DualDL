@@ -9,6 +9,7 @@ from skimage.morphology import ball
 from scipy.ndimage import binary_dilation
 from skimage.measure import label, regionprops
 import re
+import xml.etree.ElementTree as ET
 
 class CellSegmentationPipeline:
     def __init__(self, config):
@@ -180,50 +181,94 @@ class CellSegmentationPipeline:
         if pixel_dimensions is not None and len(pixel_dimensions) == 3:
             pixel_size_um_x, pixel_size_um_y, pixel_size_um_z = pixel_dimensions
             print(f"Using provided pixel dimensions: X={pixel_size_um_x:.3f}, Y={pixel_size_um_y:.3f}, Z={pixel_size_um_z:.3f} um")
-        else:
-            # Fall back to reading from metadata
-            print("No pixel dimensions provided in config, reading from metadata...")
-            pixel_size_um_x = None
-            pixel_size_um_y = None
-            pixel_size_um_z = None
+            return pixel_size_um_x, pixel_size_um_y, pixel_size_um_z
 
-            try:
-                with tifffile.TiffFile(image_path) as tif:
-                    if hasattr(tif, 'ome_metadata') and tif.ome_metadata is not None:
-                        pixels = tif.ome_metadata.get('Image', {}).get('Pixels', {})
-                        pixel_size_um_x = pixels.get('PhysicalSizeX')
-                        pixel_size_um_y = pixels.get('PhysicalSizeY')
-                        pixel_size_um_z = pixels.get('PhysicalSizeZ')
-                        print(f"Found OME-XML metadata.")
+        # Fall back to reading from metadata
+        print("No pixel dimensions provided in config, reading from metadata...")
+        pixel_size_um_x = None
+        pixel_size_um_y = None
+        pixel_size_um_z = None
 
-                    if pixel_size_um_x is None or pixel_size_um_y is None:
-                        if tif.pages and tif.pages[0].tags.get('ImageDescription'):
-                            description = tif.pages[0].tags['ImageDescription'].value
-                            
-                            match_x = re.search(r"x_resolution=(\d+\.?\d*)", description, re.IGNORECASE)
-                            match_y = re.search(r"y_resolution=(\d+\.?\d*)", description, re.IGNORECASE)
-                            match_z = re.search(r"z_resolution=(\d+\.?\d*)", description, re.IGNORECASE)
-                            match_voxel_size = re.search(r"voxel_size_um=(\d+\.?\d*)", description, re.IGNORECASE)
-                            
-                            if match_x: pixel_size_um_x = float(match_x.group(1))
-                            if match_y: pixel_size_um_y = float(match_y.group(1))
-                            if match_z: pixel_size_um_z = float(match_z.group(1))
-                            if match_voxel_size and (pixel_size_um_x is None or pixel_size_um_y is None):
-                                val = float(match_voxel_size.group(1))
-                                pixel_size_um_x = pixel_size_um_x or val
-                                pixel_size_um_y = pixel_size_um_y or val
-                                pixel_size_um_z = pixel_size_um_z or val
-                                
-            except Exception as e:
-                print(f"Could not read TIFF metadata: {e}")
+        try:
+            with tifffile.TiffFile(image_path) as tif:
+                # Method 1: Direct tag reading (XResolution etc.)
+                if tif.pages:
+                    page = tif.pages[0]
+                    xres_tag = page.tags.get('XResolution')
+                    yres_tag = page.tags.get('YResolution')
+                    if xres_tag and xres_tag.value:
+                        pixel_size_um_x = 1.0 / float(xres_tag.value[0]) if isinstance(xres_tag.value, tuple) else 1.0 / float(xres_tag.value)
+                    if yres_tag and yres_tag.value:
+                        pixel_size_um_y = 1.0 / float(yres_tag.value[0]) if isinstance(yres_tag.value, tuple) else 1.0 / float(yres_tag.value)
+                    print(f"Read from tags: X={pixel_size_um_x}, Y={pixel_size_um_y}")
 
-            # Set defaults if not found
-            if pixel_size_um_x is None: pixel_size_um_x = 1.0
-            if pixel_size_um_y is None: pixel_size_um_y = 1.0
-            if pixel_size_um_z is None: pixel_size_um_z = 1.0
+                # Method 2: OME-XML parsing
+                if hasattr(tif, 'ome_metadata') and tif.ome_metadata:
+                    try:
+                        # Parse XML with namespace
+                        namespaces = {'ome': 'http://www.openmicroscopy.org/Schemas/OME/2016-06'}
+                        root = ET.fromstring(tif.ome_metadata)
+                        pixels = root.find('.//ome:Pixels', namespaces)
+                        if pixels is not None:
+                            # PhysicalSizeX/Y/Z are attributes like PhysicalSizeXUnit="µm" and PhysicalSizeXValue="0.240"
+                            for attr in ['PhysicalSizeX', 'PhysicalSizeY', 'PhysicalSizeZ']:
+                                val = pixels.get(attr + 'Value')
+                                unit = pixels.get(attr + 'Unit', 'µm')
+                                if val:
+                                    size = float(val)
+                                    if unit != 'µm':
+                                        print(f"Warning: Unit {unit} for {attr}, assuming µm")
+                                    if attr == 'PhysicalSizeX': pixel_size_um_x = size
+                                    elif attr == 'PhysicalSizeY': pixel_size_um_y = size
+                                    elif attr == 'PhysicalSizeZ': pixel_size_um_z = size
+                            print("Parsed OME-XML successfully.")
+                    except ET.ParseError:
+                        print("OME-XML parse error, trying regex fallback...")
+                        # Fallback regex on OME string
+                        ome_str = tif.ome_metadata
+                        match_x = re.search(r'PhysicalSizeXValue["\']?[:=]\s*([0-9.]+)', ome_str)
+                        match_y = re.search(r'PhysicalSizeYValue["\']?[:=]\s*([0-9.]+)', ome_str)
+                        match_z = re.search(r'PhysicalSizeZValue["\']?[:=]\s*([0-9.]+)', ome_str)
+                        if match_x: pixel_size_um_x = float(match_x.group(1))
+                        if match_y: pixel_size_um_y = float(match_y.group(1))
+                        if match_z: pixel_size_um_z = float(match_z.group(1))
 
-            print(f"Extracted voxel dimensions from metadata: X={pixel_size_um_x:.3f}, Y={pixel_size_um_y:.3f}, Z={pixel_size_um_z:.3f} um")
+                # Method 3: Enhanced ImageDescription regex
+                if tif.pages and tif.pages[0].tags.get('ImageDescription'):
+                    description = tif.pages[0].tags['ImageDescription'].value
+                    # Broader patterns
+                    patterns_x = [r'x[_ ]?resolution[:=]\s*([0-9.]+)', r'pixel[_ ]?size[_ ]?x[:=]\s*([0-9.]+)', r'PhysicalSizeXValue["\']?[:=]\s*([0-9.]+)']
+                    patterns_y = [r'y[_ ]?resolution[:=]\s*([0-9.]+)', r'pixel[_ ]?size[_ ]?y[:=]\s*([0-9.]+)', r'PhysicalSizeYValue["\']?[:=]\s*([0-9.]+)']
+                    patterns_z = [r'z[_ ]?resolution[:=]\s*([0-9.]+)', r'pixel[_ ]?size[_ ]?z[:=]\s*([0-9.]+)', r'PhysicalSizeZValue["\']?[:=]\s*([0-9.]+)', r'voxel[_ ]?size[_ ]?um[:=]\s*([0-9.]+)']
+                    for pat in patterns_x:
+                        match = re.search(pat, description, re.IGNORECASE)
+                        if match: pixel_size_um_x = float(match.group(1)); break
+                    for pat in patterns_y:
+                        match = re.search(pat, description, re.IGNORECASE)
+                        if match: pixel_size_um_y = float(match.group(1)); break
+                    for pat in patterns_z:
+                        match = re.search(pat, description, re.IGNORECASE)
+                        if match: pixel_size_um_z = float(match.group(1)); break
+                    if pixel_size_um_x is None and pixel_size_um_y is None and pixel_size_um_z is not None:
+                        # Fallback: use voxel_size for all if isotropic
+                        pixel_size_um_x = pixel_size_um_z
+                        pixel_size_um_y = pixel_size_um_z
 
+        except Exception as e:
+            print(f"Could not read TIFF metadata: {e}")
+
+        # Set defaults only if still None (log why)
+        if pixel_size_um_x is None:
+            print("Warning: X dimension not found in metadata, using default 1.0 µm")
+            pixel_size_um_x = 1.0
+        if pixel_size_um_y is None:
+            print("Warning: Y dimension not found in metadata, using default 1.0 µm")
+            pixel_size_um_y = 1.0
+        if pixel_size_um_z is None:
+            print("Warning: Z dimension not found in metadata, using default 1.0 µm")
+            pixel_size_um_z = 1.0
+
+        print(f"Extracted voxel dimensions from metadata: X={pixel_size_um_x:.3f}, Y={pixel_size_um_y:.3f}, Z={pixel_size_um_z:.3f} um")
         return pixel_size_um_x, pixel_size_um_y, pixel_size_um_z
     
     def get_6_connectivity_structure(self):
@@ -351,10 +396,10 @@ class CellSegmentationPipeline:
         mask = np.isin(dilated_cells_3d, valid_labels)
         filtered_cells_3d[mask] = dilated_cells_3d[mask]
         
-        # Second labeling to ensure consecutive labels
-        print("Relabeling filtered cells...")
-        final_labeled_cells_3d, num_final_features = ndimage.label(filtered_cells_3d > 0, structure=s_6_connectivity)
-        print(f"After relabeling, found {num_final_features} distinct cells")
+        # Use filtered_cells_3d directly as final output (no relabeling)
+        final_labeled_cells_3d = filtered_cells_3d
+        num_final_features = len(valid_labels)
+        print(f"Final cell count: {num_final_features} distinct cells")
         
         # Save final result
         final_output_path = os.path.join(self.config['output_folders']['final'], f"{base_name}_cells.tif")
