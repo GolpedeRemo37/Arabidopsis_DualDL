@@ -137,6 +137,25 @@ This pipeline utilizes pre-trained U-Net models specifically designed for Arabid
 
 ## Citation
 
+**Conference paper manuscript citation**
+
+```bibtex
+@InCollection{reypaniagua2026arabidopsisdualdl,
+    author    = {Rey-Paniagua, G. and Lachowski, D. and Mu{\~n}oz-Barrutia, A.},
+    title     = {Segmentation of Arabidopsis Apical Stem Cells via a Dual Deep Learning Approach},
+    booktitle = {Artificial Intelligence in Biomedicine},
+    editor    = {L{\'o}pez Fern{\'a}ndez, A. and Rodr{\'i}guez-Gonz{\'a}lez, A. and Leir{\'o}s-Rodr{\'i}guez, R. and Mata Miquel, C. and Gonz{\'a}lez Su{\'a}rez, V. M.},
+    series    = {Lecture Notes in Computer Science},
+    volume    = {16148},
+    publisher = {Springer},
+    address   = {Cham},
+    year      = {2026},
+    chapter   = {29},
+    doi       = {10.1007/978-3-032-10661-2_29}
+}
+```
+
+
 If you use this pipeline in your research, please cite the following models:
 
 ```bibtex
